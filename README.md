@@ -1,4 +1,4 @@
-#  NYC Taxi Trip Analysis & Fare Prediction
+# NYC Taxi Trip Analysis & Fare Prediction
 
 > Analysing ~960 million taxi trips across New York City using Databricks, Spark SQL, and machine learning to surface business insights and predict trip fares.
 
@@ -6,19 +6,34 @@
 
 ## Table of Contents
 
+- [Repository Structure](#repository-structure)
 - [Project Overview](#project-overview)
 - [Data Pipeline](#data-pipeline)
-- [Dataset](#dataset)
-- [Key Business Insights](#key-business-insights)
+- [Business Questions](#business-questions)
+- [Key Insights](#key-insights)
 - [Machine Learning](#machine-learning)
 - [Tech Stack](#tech-stack)
 - [Results Summary](#results-summary)
 
 ---
 
+## Repository Structure
+
+| File | Description |
+|------|-------------|
+| `Download_Dataset.ipynb` | Part 1 — Data ingestion, cleaning, schema standardisation, location join, and final table creation in Databricks/PySpark |
+| `Download_Dataset.html` | Static HTML export of the ingestion notebook (view without running) |
+| `SQL_Business_Analysis.ipynb` | Part 2 — All business questions answered in Spark SQL, with outputs and commentary |
+| `SQL_Business_Analysis.html` | Static HTML export of the SQL analysis notebook |
+| `ML.ipynb` | Part 3 — Feature engineering, model training (Linear Regression + Random Forest), evaluation, and test-set predictions using sklearn |
+| `ML.html` | Static HTML export of the ML notebook |
+| `README.md` | This file |
+
+---
+
 ## Project Overview
 
-This project processes and analyses the full NYC Yellow and Green taxi trip dataset — approximately **1 billion raw records** — using a distributed Spark pipeline on Databricks. After cleaning and standardisation, roughly **960 million records** remain for analysis. A machine learning pipeline then trains and evaluates fare prediction models on a stratified sample.
+This project processes and analyses the full NYC TLC Yellow and Green taxi trip dataset (2014–2024) — approximately **1 billion raw records** — using a distributed Spark pipeline on Databricks. After cleaning and standardisation, roughly **960 million records** remain for analysis. Spark SQL drives the business analysis, and a scikit-learn ML pipeline predicts trip fare on a sampled subset.
 
 ---
 
@@ -26,7 +41,7 @@ This project processes and analyses the full NYC Yellow and Green taxi trip data
 
 ### Ingestion
 
-- Source: NYC TLC Yellow and Green taxi datasets in **Parquet format**
+- Source: NYC TLC Yellow and Green taxi datasets in **Parquet format**, 2014–2024
 - Both datasets ingested independently before schema unification
 
 ### Cleaning & Validation
@@ -35,16 +50,19 @@ Records were removed if they met any of the following conditions:
 
 | Rule | Description |
 |------|-------------|
-| Invalid timestamps | Trip start/end outside plausible date ranges |
-| Unrealistic distances | Zero-distance or physically impossible trip lengths |
-| Unrealistic speeds | Average speed exceeding plausible vehicle limits |
+| Invalid timestamps | Dropoff before pickup, or dates outside 2014–2024 range |
+| Unrealistic speed | Negative speed or exceeding NYC/highway limits |
+| Unrealistic distance | Zero or implausibly long trip distances |
+| Unrealistic duration | Trips too short (seconds) or too long (many hours) |
 | Zero passengers | Trips with no recorded passengers |
 | Duplicates | Exact duplicate records across key fields |
 
-### Standardisation
+> Constraint: no more than 10% of raw records removed. Missing values in unused fields were not used as a removal criterion.
+
+### Standardisation & Enrichment
 
 - Unified schema across Yellow and Green datasets (column renaming, type casting)
-- Joined with **TLC Location reference data** to enrich pickup/dropoff zones
+- Joined with **TLC Location reference data** to enrich pickup/dropoff with borough and zone names
 
 ### Final Dataset
 
@@ -52,56 +70,71 @@ Records were removed if they met any of the following conditions:
 |--------|-------|
 | Raw records ingested | ~1 billion |
 | Records after cleaning | ~960 million |
-| Format | Parquet (partitioned) |
-| Enrichment | Zone-level location data (pickup & dropoff) |
+| Format | Delta table (Databricks) |
+| Enrichment | Borough + zone for pickup & dropoff |
 
 ---
 
-## Key Business Insights
+## Business Questions
 
-### 1. Peak Demand
-Evening hours (~7 PM) see the highest trip volumes. Weekend demand is elevated relative to weekday baselines, suggesting leisure and hospitality as primary drivers outside business hours.
+### Q1 — Monthly trip summary (per year-month)
+- Total trips, busiest day of week, busiest hour of day
+- Average passengers per trip
+- Average total amount paid per trip (USD)
+- Average total amount paid per passenger (USD)
 
-### 2. Fare & Occupancy Averages
-- Average fare: **$14–$16**
-- Average passengers per trip: **~1.6**
+### Q2 — Trip statistics by taxi colour
+- Average, median, min, max **trip duration** (minutes)
+- Average, median, min, max **trip distance** (km)
+- Average, median, min, max **speed** (km/h)
 
-Most trips are short, solo or paired, and relatively low-value individually — volume is the revenue driver.
+### Q3 — Granular revenue breakdown
+Per colour × pickup/dropoff borough pair × month × day of week × hour:
+- Total trips, average distance, average fare, total revenue
 
-### 3. Revenue Concentration
-**Manhattan → Manhattan** trips account for approximately **61% of total revenue**, confirming the borough as the economic core of the network.
+### Q4 — 2024 top revenue corridors
+Top 10 pickup → dropoff borough pairs by total revenue, with each pair's share of 2024 total.
 
-### 4. Tipping Behaviour
-- ~**63% of trips** include a tip
-- Large tips are rare; the distribution is heavily right-skewed
-- Tip presence is a majority behaviour, but tip magnitude is not a reliable revenue lever
+### Q5 — Tipping behaviour
+- % of all trips where the driver received a tip
+- Of tipped trips: % where tip was ≥ $3
 
-### 5. High-Value Trip Duration
-Trips in the **30–60 minute** range offer the best balance of:
-- Per-trip revenue (longer than short hops)
-- Trip volume (short enough to complete multiple per shift)
+### Q6 — Trip duration bins & driver optimisation
+Trips classified into duration buckets (< 50 min / 50–100 / 100–200 / 200–300 / 300–600 / 600+ min).  
+Per bin: average speed (km/h) and average distance per dollar (km/$).  
+**Recommendation:** 30–60 minute trips offer the best balance of revenue per trip and trips per shift.
 
-This window represents the sweet spot for driver earnings optimisation.
+---
+
+## Key Insights
+
+| Finding | Detail |
+|---------|--------|
+| Peak demand | Evenings (~7 PM) and weekends |
+| Average fare | $14–$16 |
+| Average passengers | ~1.6 per trip |
+| Top revenue corridor | Manhattan → Manhattan (~61% of total revenue) |
+| Trips with tips | ~63% |
+| Best duration window | 30–60 minutes |
 
 ---
 
 ## Machine Learning
 
 ### Objective
-Predict trip fare amount given features available at trip start (pickup location, time, distance, passenger count, etc.).
+Predict `total_amount` for a trip. Features exclude `fare_amount` and `tolls_amount` (per spec).
 
-### Data Split Strategy
-A **time-based split** was used to simulate real-world deployment conditions:
+### Data Split
 
 | Split | Period |
 |-------|--------|
-| Training set | All trips before October 2024 |
-| Test set | October – December 2024 |
+| Train / validation | All trips before October 2024 |
+| Test | October – December 2024 |
 
 ### Sample
-Due to memory constraints, a **1% stratified sample** (~500,000 rows) was used for modelling. Stratification preserved temporal and geographic distributions.
+**1% stratified sample** (~500,000 rows) used due to memory constraints with sklearn on a single node.
 
-### Models Evaluated
+### Models
 
 | Model | RMSE |
 |-------|------|
@@ -111,13 +144,13 @@ Due to memory constraints, a **1% stratified sample** (~500,000 rows) was used f
 
 ### Best Model: Random Forest
 
-Random Forest outperformed both the baseline and Linear Regression. Key reasons:
+Random Forest beats the baseline (RMSE 15.25 vs 16.25) and significantly outperforms Linear Regression. Key reasons:
 
-- **Nonlinear relationships**: Fare is influenced by zone-level pricing, surge patterns, and distance in ways that are not well-captured by linear models.
-- **Feature interactions**: The model can capture interactions between time-of-day, location, and distance without explicit feature engineering.
-- **Robustness to outliers**: Tree-based methods are less sensitive to fare outliers than regression.
+- Captures nonlinear relationships between distance, location, and fare
+- Handles feature interactions (time × location × colour) without manual engineering
+- More robust to fare outliers than regression
 
-Linear Regression underperformed the baseline (RMSE 25.69 vs 16.25), indicating that the raw features without polynomial or interaction terms produce worse-than-average predictions — likely due to high variance in trip types that linearity cannot resolve.
+Linear Regression underperforms the mean baseline — raw categorical location features without encoding inflate variance beyond what a linear model can absorb.
 
 ---
 
@@ -127,9 +160,9 @@ Linear Regression underperformed the baseline (RMSE 25.69 vs 16.25), indicating 
 |-------|-----------|
 | Compute | Databricks (Apache Spark) |
 | Query language | Spark SQL |
-| ML framework | MLlib (PySpark) |
-| Data format | Parquet |
-| Orchestration | Databricks Jobs / Notebooks |
+| ML framework | scikit-learn |
+| Data format | Parquet / Delta table |
+| Language | Python (PySpark + pandas) |
 
 ---
 
@@ -138,7 +171,7 @@ Linear Regression underperformed the baseline (RMSE 25.69 vs 16.25), indicating 
 | Metric | Value |
 |--------|-------|
 | Total trips analysed | ~960 million |
-| Peak demand window | Evenings (~7 PM), weekends |
+| Peak demand | Evenings (~7 PM), weekends |
 | Top revenue corridor | Manhattan → Manhattan (~61%) |
 | Average fare | $14–$16 |
 | Trips with tips | ~63% |
@@ -150,6 +183,6 @@ Linear Regression underperformed the baseline (RMSE 25.69 vs 16.25), indicating 
 
 ## Notes
 
-- ML experiments used a 1% sample due to Spark driver memory limits. Full-dataset training via Spark's distributed `RandomForestRegressor` is feasible with appropriate cluster sizing.
-- The time-based train/test split is intentional — random splits would leak future information into training, inflating performance metrics.
-- Linear Regression's underperformance relative to the mean baseline is a known pattern when raw categorical location features (zone IDs) are not properly encoded; further feature engineering (target encoding, distance bins) would likely close the gap.
+- ML used a 1% sample due to single-node sklearn memory limits. A distributed SparkML pipeline would scale to the full dataset.
+- Time-based train/test split is intentional — random splits leak future data into training, artificially inflating RMSE scores.
+- Linear Regression's underperformance is expected without target-encoding of high-cardinality location features.
