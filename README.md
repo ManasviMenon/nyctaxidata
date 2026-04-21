@@ -1,7 +1,3 @@
-NYC Taxi Data Analysis and Fare Prediction
-
-Manasvi Menon | Big Data Engineering (2025)
-
 Overview
 
 This project analyses approximately 1 billion NYC taxi trips using Databricks, Spark SQL, and machine learning to generate business insights and predict trip fares.
@@ -31,10 +27,3 @@ Linear Regression: 25.69
 Random Forest: 15.25
 
 Best model: Random Forest, due to better generalization and ability to capture nonlinear patterns
-
-Challenges
-Handling large-scale data (~1B rows)
-Memory limitations requiring sampling
-Schema inconsistencies between datasets
-Managing outliers and missing values
-Implementing time-based train-test split without data leakage
